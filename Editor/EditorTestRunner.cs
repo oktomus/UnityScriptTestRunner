@@ -6,6 +6,7 @@ using System.Linq;
 using System.Reflection;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.TestTools;
 
 /// <summary>
 /// Parse tests available in the current assemblies and run them.
@@ -22,9 +23,25 @@ public static class EditorTestRunner
     /// </summary>
     public class Report
     {
+        /// <summary>
+        /// True if more than one test failed or if registering tests failed.
+        /// </summary>
         public bool Failed;
+
+        /// <summary>
+        /// Number of test runned.
+        /// </summary>
         public int TestCount;
+
+        /// <summary>
+        /// Number of failed tests.
+        /// </summary>
         public int FailedTestCount;
+
+        /// <summary>
+        /// Number of ignored tests (playmode tests).
+        /// </summary>
+        public int IgnoredTestCount;
     }
 
     public static Report TestsReport { get; private set; }
@@ -102,10 +119,10 @@ public static class EditorTestRunner
 
         foreach (KeyValuePair<string, List<EditorTest>> entry in RegisteredTests)
         {
-            Log("Running Test Class: " + entry.Key);
-
             int classErrorCount = 0;
             var classStopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+            Log($"[{entry.Key}] {entry.Value.Count} test(s) to run.");
 
             // Run all tests in this class.
             foreach (var test in entry.Value)
@@ -257,8 +274,18 @@ public static class EditorTestRunner
             {
                 var standardTest = method.GetCustomAttribute<NUnit.Framework.TestAttribute>(true);
 
+                // This is not a test.
                 if (standardTest is null)
+                {
+                    // This is not a supported test.
+                    if (method.GetCustomAttribute<UnityTestAttribute>(true) != null)
+                    {
+                        Log($"[{testClassType.Name}] Ignoring test case {method.Name}. Playmode tests are not supported.", LogType.Warning);
+                        TestsReport.IgnoredTestCount += 1;
+                    }
+
                     continue;
+                }
 
                 // The test will be ran only once.
                 if (method.GetParameters().Length == 0 && method.ReturnType == typeof(void))
@@ -404,6 +431,13 @@ public static class EditorTestRunner
                         yield return item;
                         break;
                     }
+
+                    // A class is a test class if it contains at least one playmode test (warn: we ignore playmode test).
+                    if (method.GetCustomAttribute<UnityTestAttribute>(true) != null)
+                    {
+                        yield return item;
+                        break;
+                    }
                 }
             }
         }
@@ -432,6 +466,11 @@ public static class EditorTestRunner
         var msg = $"[{TestsReport.TestCount - TestsReport.FailedTestCount}/{TestsReport.TestCount}] test(s) succeeded.";
 
         Log(msg, type);
+
+        if (TestsReport.IgnoredTestCount > 0)
+        {
+            Log($"{TestsReport.IgnoredTestCount} test(s) ignored.", LogType.Warning);
+        }
     }
 
     private static void LogTestResult(string msg, bool failed = false)
@@ -467,15 +506,19 @@ public static class EditorTestRunner
     {
         if (Application.isBatchMode)
         {
-            if (type == LogType.Error)
+            if (type == LogType.Error || type == LogType.Assert || type == LogType.Exception)
                 Console.Error.Write(msg);
+            else if (type == LogType.Warning)
+                Console.Write(msg);
             else
                 Console.Write(msg);
         }
         else
         {
-            if (type == LogType.Error)
+            if (type == LogType.Error || type == LogType.Exception || type == LogType.Assert)
                 Debug.LogError(msg);
+            else if (type == LogType.Warning)
+                Debug.LogWarning(msg);
             else
                 Debug.Log(msg);
         }
