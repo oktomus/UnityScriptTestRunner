@@ -1,4 +1,4 @@
-CliTestRunner is a simplified version of [Cysharp/RuntimeUnitTestToolkit](https://github.com/Cysharp/RuntimeUnitTestToolkit) which allow to **run Unity test cases from script**.
+A simplified version of [Cysharp/RuntimeUnitTestToolkit](https://github.com/Cysharp/RuntimeUnitTestToolkit) which allow to **run Unity test cases from script**.
 
 - Easy to use
 - Simple
