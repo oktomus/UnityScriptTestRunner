@@ -507,11 +507,11 @@ public static class EditorTestRunner
         if (Application.isBatchMode)
         {
             if (type == LogType.Error || type == LogType.Assert || type == LogType.Exception)
-                Console.Error.Write(msg);
+                Console.Error.WriteLine(msg);
             else if (type == LogType.Warning)
-                Console.Write(msg);
+                Console.WriteLine(msg);
             else
-                Console.Write(msg);
+                Console.WriteLine(msg);
         }
         else
         {
