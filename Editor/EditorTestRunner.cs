@@ -114,7 +114,7 @@ public static class EditorTestRunner
 
         totalStopWatch.Stop();
 
-        Log($"Tets total execution time: {totalStopWatch.Elapsed.TotalSeconds.ToString("0.00")} s\n");
+        Log($"Tests total execution time: {totalStopWatch.Elapsed.TotalSeconds.ToString("0.00")} s\n");
 
         LogReport();
     }
