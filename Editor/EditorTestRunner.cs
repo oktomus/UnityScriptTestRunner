@@ -91,9 +91,14 @@ public static class EditorTestRunner
     {
         TestsReport = new Report();
 
+        var totalStopWatch = System.Diagnostics.Stopwatch.StartNew();
+
         try
         {
+            var registerStopWatch = System.Diagnostics.Stopwatch.StartNew();
             RegisterTests();
+            registerStopWatch.Stop();
+            Log($"Registered {RegisteredTests.Count} test classes in {registerStopWatch.Elapsed.TotalSeconds.ToString("0.00")} s\n");
         }
         catch (Exception e)
         {
@@ -106,6 +111,10 @@ public static class EditorTestRunner
         RunTests();
 
         TestsReport.Failed = TestsReport.FailedTestCount > 0;
+
+        totalStopWatch.Stop();
+
+        Log($"Tets total execution time: {totalStopWatch.Elapsed.TotalSeconds.ToString("0.00")} s\n");
 
         LogReport();
     }
@@ -122,7 +131,7 @@ public static class EditorTestRunner
             int classErrorCount = 0;
             var classStopwatch = System.Diagnostics.Stopwatch.StartNew();
 
-            Log($"[{entry.Key}] {entry.Value.Count} test(s) to run.");
+            Log($"[{entry.Key}] executing {entry.Value.Count} test(s)...");
 
             // Run all tests in this class.
             foreach (var test in entry.Value)
@@ -137,7 +146,7 @@ public static class EditorTestRunner
                 } 
                 catch (Exception e)
                 {
-                    LogTestResult($"{test.Key}, {e.ToString()}", failed: true);
+                    Log($"- {test.Key} Failed.", LogType.Error);
                     failed = true;
                 }
 
@@ -155,21 +164,21 @@ public static class EditorTestRunner
             // Log class result.
             if (classErrorCount == 0)
             {
-                Log($"[{entry.Key}] executed in {classStopwatch.Elapsed.TotalMilliseconds.ToString("0.00")} ms\n\n");
+                Log($"[{entry.Key}] executed in {classStopwatch.Elapsed.TotalSeconds.ToString("0.00")} s\n");
             }
             else
             {
-                Log($"[{entry.Key}] {classErrorCount} failure(s), executed in {classStopwatch.Elapsed.TotalMilliseconds.ToString("0.00")} ms\n\n", LogType.Error);
+                Log($"[{entry.Key}] {classErrorCount} failure(s), executed in {classStopwatch.Elapsed.TotalSeconds.ToString("0.00")} s\n", LogType.Error);
             }
         }
 
         if (allTestGreen)
         {
-            Log("Test Complete Successfully");
+            Log("Test Complete Successfully.\n");
         }
         else
         {
-            Log("Test Failed, please see [FAILED] log.", LogType.Error);
+            Log("Test Failed, please see [FAILED] log.\n", LogType.Error);
         }
     }
 
@@ -207,11 +216,11 @@ public static class EditorTestRunner
 
             if (exception == null)
             {
-                LogTestResult($"{test.Key}, {methodStopwatch.Elapsed.TotalMilliseconds.ToString("0.00")} ms", failed: false);
+                Log($"- {test.Key} executed in {methodStopwatch.Elapsed.TotalSeconds.ToString("0.00")} s");
             }
             else
             {
-                LogTestResult($"{test.Key}, {exception.ToString()}", failed: true);
+                Log($"- {test.Key} Failed.", LogType.Error);
                 failed = true;
             }
         }
@@ -224,12 +233,6 @@ public static class EditorTestRunner
         }
 
         return failed;
-    }
-
-    [MenuItem("Tests/Run tests")]
-    private static void MenuItem_RunTests()
-    {
-        RunAllTests();
     }
 
     #endregion
@@ -473,41 +476,12 @@ public static class EditorTestRunner
         }
     }
 
-    private static void LogTestResult(string msg, bool failed = false)
-    {
-        // Header.
-        if (Application.isBatchMode && failed)
-        {
-            var currentForeground = Console.ForegroundColor;
-            Console.ForegroundColor = ConsoleColor.Red;
-            Console.Error.Write("[FAILED]");
-            Console.ForegroundColor = currentForeground;
-            Console.Error.WriteLine(msg);
-        }
-        else if (Application.isBatchMode && !failed)
-        {
-            var currentForeground = Console.ForegroundColor;
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.Write("[OK]");
-            Console.ForegroundColor = currentForeground;
-            Console.WriteLine(msg);
-        }
-        else if (failed)
-        {
-            Debug.LogError($"[FAILED] {msg}");
-        }
-        else
-        {
-            Debug.Log($"[OK] {msg}");
-        }
-    }
-
     private static void Log(string msg, LogType type = LogType.Log)
     {
         if (Application.isBatchMode)
         {
             if (type == LogType.Error || type == LogType.Assert || type == LogType.Exception)
-                Console.Error.WriteLine(msg);
+                Console.Error.Write(msg);
             else if (type == LogType.Warning)
                 Console.WriteLine(msg);
             else
