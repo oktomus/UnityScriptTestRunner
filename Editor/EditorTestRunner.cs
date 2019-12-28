@@ -1,23 +1,45 @@
-
 using NUnit.Framework;
 using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using UnityEditor;
+using UnityEngine;
 
+/// <summary>
+/// Parse tests available in the current assemblies and run them.
+/// </summary>
 public static class EditorTestRunner
 {
+    /// <summary>
+    /// Assemblies to ignore.
+    /// </summary>
     public static List<string> IgnoredTargetAssemblies { get; set; } = new List<string>() { "UnityEngine", "mscorlib", "System" };
 
-    private struct EditorTest
+    /// <summary>
+    /// Containg informations about failures.
+    /// </summary>
+    public class Report
+    {
+        public bool Failed;
+        public int TestCount;
+        public int FailedTestCount;
+    }
+
+    public static Report TestsReport { get; private set; }
+
+    /// <summary>
+    /// A test reference.
+    /// </summary>
+    private class EditorTest
     {
         public readonly string Key;
         public readonly Action Test;
         public readonly List<Action> Setups;
         public readonly List<Action> Teardowns;
 
-        public EditorTest(string title, Action test, List<Action> setups, List<Action> teardowns) 
+        public EditorTest(string title, Action test, List<Action> setups, List<Action> teardowns)
         {
             Key = title;
             Test = test;
@@ -26,19 +48,180 @@ public static class EditorTestRunner
         }
     }
 
-    private static Dictionary<string, List<EditorTest>> RegisteredTests { get; set; }
+    /// <summary>
+    /// All tests that were found.
+    /// </summary>
+    private static Dictionary<string, List<EditorTest>> RegisteredTests { get; } = new Dictionary<string, List<EditorTest>>();
+
+    static EditorTestRunner()
+    {
+        // Be sure logs are visible in the console.
+        if (Application.isBatchMode)
+        {
+            UnityEngine.Application.logMessageReceived += (msg, trace, type) =>
+            {
+                if (type == LogType.Error)
+                    Console.Error.Write($"[{type}] {msg}");
+                else
+                    Console.Write($"[{type}] {msg}");
+            };
+        }
+    }
+
+    #region Running
 
     public static void RunAllTests()
     {
-        RegisterTests();
+        TestsReport = new Report();
+
+        try
+        {
+            RegisterTests();
+        }
+        catch (Exception e)
+        {
+            Log("Failed to register tests.", LogType.Error);
+            Log(e.ToString(), LogType.Exception);
+            TestsReport.Failed = true;
+            return;
+        }
 
         RunTests();
+
+        TestsReport.Failed = TestsReport.FailedTestCount > 0;
+
+        LogReport();
     }
 
+    /// <summary>
+    /// Run all tests currently registered.
+    /// </summary>
     private static void RunTests()
     {
+        bool allTestGreen = true;
+
+        foreach (KeyValuePair<string, List<EditorTest>> entry in RegisteredTests)
+        {
+            Log("Running Test Class: " + entry.Key);
+
+            int classErrorCount = 0;
+            var classStopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+            // Run all tests in this class.
+            foreach (var test in entry.Value)
+            {
+                TestsReport.TestCount += 1;
+
+                bool failed = false;
+
+                try
+                {
+                    failed = RunTest(test);
+                } 
+                catch (Exception e)
+                {
+                    LogTestResult($"{test.Key}, {e.ToString()}", failed: true);
+                    failed = true;
+                }
+
+                if (failed)
+                {
+                    TestsReport.FailedTestCount += 1;
+                    classErrorCount += 1;
+                }
+
+                allTestGreen = allTestGreen && !failed;
+            }
+
+            classStopwatch.Stop();
+
+            // Log class result.
+            if (classErrorCount == 0)
+            {
+                Log($"[{entry.Key}] executed in {classStopwatch.Elapsed.TotalMilliseconds.ToString("0.00")} ms\n\n");
+            }
+            else
+            {
+                Log($"[{entry.Key}] {classErrorCount} failure(s), executed in {classStopwatch.Elapsed.TotalMilliseconds.ToString("0.00")} ms\n\n", LogType.Error);
+            }
+        }
+
+        if (allTestGreen)
+        {
+            Log("Test Complete Successfully");
+        }
+        else
+        {
+            Log("Test Failed, please see [FAILED] log.", LogType.Error);
+        }
     }
 
+    private static bool RunTest(EditorTest test)
+    {
+        var failed = false;
+
+        try
+        {
+            // Setup.
+            foreach (var setup in test.Setups)
+            {
+                setup();
+            }
+
+            // Cleanup.
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+
+            var methodStopwatch = System.Diagnostics.Stopwatch.StartNew();
+            Exception exception = null;
+
+            // Run the test.
+            try
+            {
+                test.Test.Invoke();
+            }
+            catch (Exception ex)
+            {
+                exception = ex;
+            }
+
+            methodStopwatch.Stop();
+
+            if (exception == null)
+            {
+                LogTestResult($"{test.Key}, {methodStopwatch.Elapsed.TotalMilliseconds.ToString("0.00")} ms", failed: false);
+            }
+            else
+            {
+                LogTestResult($"{test.Key}, {exception.ToString()}", failed: true);
+                failed = true;
+            }
+        }
+        finally
+        {
+            foreach (var teardown in test.Teardowns)
+            {
+                teardown();
+            }
+        }
+
+        return failed;
+    }
+
+    [MenuItem("Tests/Run tests")]
+    private static void MenuItem_RunTests()
+    {
+        RunAllTests();
+    }
+
+    #endregion
+
+    #region Regesitering, Finding
+
+    /// <summary>
+    /// Find all tests in the current assemblies.
+    /// </summary>
     private static void RegisterTests()
     {
         RegisteredTests.Clear();
@@ -238,4 +421,65 @@ public static class EditorTestRunner
             yield return assembly;
         }
     }
+
+    #endregion
+
+    #region Logging
+
+    private static void LogReport()
+    {
+        var type = TestsReport.Failed ? LogType.Error : LogType.Log;
+        var msg = $"[{TestsReport.TestCount - TestsReport.FailedTestCount}/{TestsReport.TestCount}] test(s) succeeded.";
+
+        Log(msg, type);
+    }
+
+    private static void LogTestResult(string msg, bool failed = false)
+    {
+        // Header.
+        if (Application.isBatchMode && failed)
+        {
+            var currentForeground = Console.ForegroundColor;
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.Error.Write("[FAILED]");
+            Console.ForegroundColor = currentForeground;
+            Console.Error.WriteLine(msg);
+        }
+        else if (Application.isBatchMode && !failed)
+        {
+            var currentForeground = Console.ForegroundColor;
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.Write("[OK]");
+            Console.ForegroundColor = currentForeground;
+            Console.WriteLine(msg);
+        }
+        else if (failed)
+        {
+            Debug.LogError($"[FAILED] {msg}");
+        }
+        else
+        {
+            Debug.Log($"[OK] {msg}");
+        }
+    }
+
+    private static void Log(string msg, LogType type = LogType.Log)
+    {
+        if (Application.isBatchMode)
+        {
+            if (type == LogType.Error)
+                Console.Error.Write(msg);
+            else
+                Console.Write(msg);
+        }
+        else
+        {
+            if (type == LogType.Error)
+                Debug.LogError(msg);
+            else
+                Debug.Log(msg);
+        }
+    }
+
+    #endregion
 }
